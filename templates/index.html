@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VeriVoice News</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="max-w-xl mx-auto p-6 bg-white rounded-lg shadow-md mt-10">
+        <h1 class="text-3xl font-bold text-center text-blue-600 mb-6">VeriVoice News</h1>
+        <p class="text-lg text-gray-700 text-center mb-4">AI-Powered Fact-Checker for the Visually Impaired</p>
+        
+        <p id="status" class="text-center text-gray-600 mb-6">Click 'Speak News' to start.</p>
+        
+        <div class="text-center mb-6">
+            <button id="startButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full mt-4 transition duration-300 mr-2">
+                🎤 Speak News
+            </button>
+            <button id="textButton" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-full mt-4 transition duration-300">
+                ⌨️ Type News
+            </button>
+        </div>
+        
+        <div id="textInputSection" class="hidden mb-6">
+            <input 
+                type="text" 
+                id="textInput" 
+                placeholder="Type your news command (e.g., 'news about technology')"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+            <div class="text-center mt-2">
+                <button id="submitTextButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-300">
+                    Get News
+                </button>
+                <button id="cancelTextButton" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition duration-300 ml-2">
+                    Cancel
+                </button>
+            </div>
+        </div>
+        
+        <div id="summaryOutput" class="bg-gray-50 p-4 rounded-lg mb-4 min-h-[100px] hidden">
+            <h3 class="font-semibold text-gray-800 mb-2">📰 News Summary:</h3>
+            <p id="summaryText" class="text-gray-700"></p>
+        </div>
+        
+        <div id="verdictOutput" class="bg-gray-50 p-4 rounded-lg min-h-[60px] hidden">
+            <h3 class="font-semibold text-gray-800 mb-2">🔍 Credibility Check:</h3>
+            <p id="verdictText" class="text-gray-700"></p>
+        </div>
+        
+        <div class="mt-6 text-sm text-gray-500 text-center">
+            <p>🎤 Speak commands like: "Read news about technology" or "Latest news about sports"</p>
+            <p>⌨️ Or type your command if speech recognition isn't working</p>
+        </div>
+    </div>
+
+    <script>
+        // Get references to HTML elements
+        const startButton = document.getElementById('startButton');
+        const textButton = document.getElementById('textButton');
+        const status = document.getElementById('status');
+        const summaryOutput = document.getElementById('summaryOutput');
+        const verdictOutput = document.getElementById('verdictOutput');
+        const summaryText = document.getElementById('summaryText');
+        const verdictText = document.getElementById('verdictText');
+        const textInputSection = document.getElementById('textInputSection');
+        const textInput = document.getElementById('textInput');
+        const submitTextButton = document.getElementById('submitTextButton');
+        const cancelTextButton = document.getElementById('cancelTextButton');
+
+        // Check for browser support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const SpeechSynthesisUtterance = window.SpeechSynthesisUtterance;
+
+        // Initialize speech recognition
+        let recognition = null;
+        let speechRetryCount = 0;
+        const maxSpeechRetries = 2;
+        
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+        }
+
+        // Function to process news command
+        function processNewsCommand(command) {
+            status.textContent = `Processing: "${command}"...`;
+            status.className = "text-center text-blue-600 mb-6";
+            
+            // Hide previous results
+            summaryOutput.classList.add('hidden');
+            verdictOutput.classList.add('hidden');
+
+            // Send request to backend
+            fetch('/get_news_summary', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: command })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display summary
+                summaryText.textContent = data.summary;
+                summaryOutput.classList.remove('hidden');
+                
+                // Display verdict
+                verdictText.textContent = data.fake_news_verdict;
+                verdictOutput.classList.remove('hidden');
+
+                // Speak the summary
+                const summaryUtterance = new SpeechSynthesisUtterance(data.summary);
+                summaryUtterance.rate = 0.8;
+                summaryUtterance.pitch = 1;
+                
+                summaryUtterance.onend = function() {
+                    // After summary finishes, speak the verdict
+                    const verdictUtterance = new SpeechSynthesisUtterance(
+                        `Credibility assessment: ${data.fake_news_verdict}`
+                    );
+                    verdictUtterance.rate = 0.8;
+                    verdictUtterance.pitch = 1;
+                    
+                    verdictUtterance.onend = function() {
+                        // Re-enable interface after both speeches finish
+                        resetInterface();
+                    };
+                    
+                    speechSynthesis.speak(verdictUtterance);
+                };
+                
+                speechSynthesis.speak(summaryUtterance);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                status.textContent = "Sorry, there was an error processing your request.";
+                status.className = "text-center text-red-600 mb-6";
+                resetInterface();
+            });
+        }
+
+        // Function to reset interface
+        function resetInterface() {
+            status.textContent = "Ready for new command.";
+            status.className = "text-center text-gray-600 mb-6";
+            startButton.disabled = false;
+            startButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            textButton.disabled = false;
+            textButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            textInputSection.classList.add('hidden');
+            speechRetryCount = 0;
+        }
+
+        // Button click listeners
+        startButton.addEventListener('click', function() {
+            if (!SpeechRecognition || !SpeechSynthesisUtterance) {
+                status.textContent = "Speech not supported. Please use the 'Type News' option.";
+                status.className = "text-center text-orange-600 mb-6";
+                return;
+            }
+
+            // Disable buttons and update status
+            startButton.disabled = true;
+            startButton.classList.add('opacity-50', 'cursor-not-allowed');
+            textButton.disabled = true;
+            textButton.classList.add('opacity-50', 'cursor-not-allowed');
+            status.textContent = "Initializing speech...";
+            
+            // Hide text input and previous results
+            textInputSection.classList.add('hidden');
+            summaryOutput.classList.add('hidden');
+            verdictOutput.classList.add('hidden');
+
+            // Set up recognition event handlers
+            recognition.onstart = function() {
+                status.textContent = "Listening... Speak your news command.";
+                status.className = "text-center text-green-600 mb-6 font-semibold";
+            };
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                processNewsCommand(transcript);
+            };
+
+            recognition.onerror = function(event) {
+                let errorMessage = "Speech recognition error occurred.";
+                
+                switch(event.error) {
+                    case 'network':
+                        if (speechRetryCount < maxSpeechRetries) {
+                            speechRetryCount++;
+                            status.textContent = `Network error. Retrying... (${speechRetryCount}/${maxSpeechRetries})`;
+                            status.className = "text-center text-orange-600 mb-6";
+                            setTimeout(() => {
+                                recognition.start();
+                            }, 2000);
+                            return;
+                        } else {
+                            errorMessage = "Network error persists. Please check your internet connection or use the 'Type News' option.";
+                        }
+                        break;
+                    case 'not-allowed':
+                        errorMessage = "Microphone access denied. Please allow microphone access and try again, or use the 'Type News' option.";
+                        break;
+                    case 'no-speech':
+                        errorMessage = "No speech detected. Please try speaking clearly or use the 'Type News' option.";
+                        break;
+                    case 'audio-capture':
+                        errorMessage = "Audio capture failed. Please check your microphone or use the 'Type News' option.";
+                        break;
+                    case 'service-not-allowed':
+                        errorMessage = "Speech service not allowed. Please try again or use the 'Type News' option.";
+                        break;
+                    default:
+                        errorMessage = `Speech recognition error: ${event.error}. Please try again or use the 'Type News' option.`;
+                }
+                
+                status.textContent = errorMessage;
+                status.className = "text-center text-red-600 mb-6";
+                resetInterface();
+            };
+
+            recognition.onend = function() {
+                // Ensure interface is reset if recognition ends unexpectedly
+                if (startButton.disabled && !status.textContent.includes("Processing")) {
+                    resetInterface();
+                }
+            };
+
+            // Start recognition
+            try {
+                recognition.start();
+            } catch (error) {
+                status.textContent = "Speech recognition failed to start. Please use the 'Type News' option.";
+                status.className = "text-center text-red-600 mb-6";
+                resetInterface();
+            }
+        });
+
+        // Text input button handler
+        textButton.addEventListener('click', function() {
+            textInputSection.classList.remove('hidden');
+            textInput.focus();
+            summaryOutput.classList.add('hidden');
+            verdictOutput.classList.add('hidden');
+        });
+
+        // Submit text button handler
+        submitTextButton.addEventListener('click', function() {
+            const command = textInput.value.trim();
+            if (command) {
+                startButton.disabled = true;
+                startButton.classList.add('opacity-50', 'cursor-not-allowed');
+                textButton.disabled = true;
+                textButton.classList.add('opacity-50', 'cursor-not-allowed');
+                processNewsCommand(command);
+                textInput.value = '';
+            } else {
+                status.textContent = "Please enter a news command.";
+                status.className = "text-center text-orange-600 mb-6";
+            }
+        });
+
+        // Cancel text button handler
+        cancelTextButton.addEventListener('click', function() {
+            textInputSection.classList.add('hidden');
+            textInput.value = '';
+            status.textContent = "Click 'Speak News' or 'Type News' to start.";
+            status.className = "text-center text-gray-600 mb-6";
+        });
+
+        // Enter key handler for text input
+        textInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                submitTextButton.click();
+            }
+        });
+
+        // Initial state
+        window.addEventListener('load', function() {
+            status.textContent = "Click 'Speak News' or 'Type News' to start.";
+            status.className = "text-center text-gray-600 mb-6";
+        });
+    </script>
+</body>
+</html>
